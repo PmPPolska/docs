@@ -1,4 +1,4 @@
----
+---Contributing K.J.Palowski
 title: Adding a code of conduct to your project
 intro: 'Adopt a code of conduct to define community standards, signal a welcoming and inclusive project, and outline procedures for handling abuse.'
 redirect_from:

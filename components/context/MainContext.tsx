@@ -55,23 +55,28 @@ export type ProductTreeNode = {
   childPages: Array<ProductTreeNode>
 }
 
+type UIString = Record<string, string>
+export type UIStrings = UIString | { [key: string]: UIStrings }
+
+export type EnterpriseDeprecation = {
+  version_was_deprecated: string
+  version_will_be_deprecated: string
+  deprecation_details: string
+  isOldestReleaseDeprecated?: boolean
+}
+
+type DataReusables = {
+  enterprise_deprecation?: EnterpriseDeprecation
+}
+
 type DataT = {
-  ui: Record<string, any>
-  reusables: {
-    enterprise_deprecation: {
-      version_was_deprecated: string
-      version_will_be_deprecated: string
-      deprecation_details: string
-      isOldestReleaseDeprecated?: boolean
-    }
-    policies: {
-      translation: string
-    }
-  }
+  ui: UIStrings
+  reusables: DataReusables
   variables: {
     release_candidate: { version: string }
   }
 }
+
 type EnterpriseServerReleases = {
   isOldestReleaseDeprecated: boolean
   oldestSupported: string
@@ -125,6 +130,38 @@ export type MainContextT = {
   fullUrl: string
 }
 
+// Write down the namespaces from `data/ui.yml` that are used on all pages,
+// they will always be available and don't need to be manually added.
+// Order does not matter on these.
+const DEFAULT_UI_NAMESPACES = [
+  'header',
+  'search',
+  'survey',
+  'toc',
+  'meta',
+  'scroll_button',
+  'pages',
+  'picker',
+  'footer',
+  'contribution_cta',
+  'support',
+  'rest',
+]
+
+export function addUINamespaces(req: any, ui: UIStrings, namespaces: string[]) {
+  const pool = req.context.site.data.ui
+  for (const namespace of namespaces) {
+    if (!(namespace in pool)) {
+      throw new Error(
+        `Invalid namespace "${namespace}". It's not present in data/ui.yml as a namespace. (not one of: ${Object.keys(
+          pool,
+        )})`,
+      )
+    }
+    ui[namespace] = pool[namespace]
+  }
+}
+
 export const getMainContext = async (req: any, res: any): Promise<MainContextT> => {
   // Our current translation process adds 'ms.*' frontmatter properties to files
   // it translates including when data/ui.yml is translated. We don't use these
@@ -134,12 +171,36 @@ export const getMainContext = async (req: any, res: any): Promise<MainContextT> 
     delete req.context.site.data.ui.ms
   }
 
+  if (!req.context.page) {
+    throw new Error(`No page context (${req.url})`)
+  }
   const { documentType } = req.context.page
+
+  const ui: UIStrings = {}
+  addUINamespaces(req, ui, DEFAULT_UI_NAMESPACES)
 
   // Every product landing page has a listing of all articles.
   // It's used by the <ProductArticlesList> component.
   const includeFullProductTree = documentType === 'product'
   const includeSidebarTree = documentType !== 'homepage'
+
+  const reusables: DataReusables = {}
+
+  // To know whether we need this key, we need to match this
+  // with the business logic in `DeprecationBanner.tsx` which is as follows:
+  if (req.context.currentVersion.includes(req.context.enterpriseServerReleases.oldestSupported)) {
+    reusables.enterprise_deprecation = {
+      version_was_deprecated: req.context.getDottedData(
+        'reusables.enterprise_deprecation.version_was_deprecated',
+      ),
+      version_will_be_deprecated: req.context.getDottedData(
+        'reusables.enterprise_deprecation.version_will_be_deprecated',
+      ),
+      deprecation_details: req.context.getDottedData(
+        'reusables.enterprise_deprecation.deprecation_details',
+      ),
+    }
+  }
 
   return {
     breadcrumbs: req.context.breadcrumbs || {},
@@ -149,24 +210,10 @@ export const getMainContext = async (req: any, res: any): Promise<MainContextT> 
     isHomepageVersion: req.context.page?.documentType === 'homepage',
     error: req.context.error ? req.context.error.toString() : '',
     data: {
-      ui: req.context.site.data.ui,
+      ui,
 
-      reusables: {
-        enterprise_deprecation: {
-          version_was_deprecated: req.context.getDottedData(
-            'reusables.enterprise_deprecation.version_was_deprecated',
-          ),
-          version_will_be_deprecated: req.context.getDottedData(
-            'reusables.enterprise_deprecation.version_will_be_deprecated',
-          ),
-          deprecation_details: req.context.getDottedData(
-            'reusables.enterprise_deprecation.deprecation_details',
-          ),
-        },
-        policies: {
-          translation: req.context.getDottedData('reusables.policies.translation'),
-        },
-      },
+      reusables,
+
       variables: {
         release_candidate: {
           version: req.context.getDottedData('variables.release_candidate.version') || null,
